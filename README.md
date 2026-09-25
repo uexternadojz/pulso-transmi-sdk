@@ -33,6 +33,10 @@ python -m pip install -e '.[ml]'
 cp .env.example .env
 python examples/01_download.py
 python examples/02_naive_baseline.py
+python examples/03_model_comparison.py
+python examples/04_train_extra_trees.py
+python examples/05_submit_predictions.py
+python -m pulso_transmi.collector
 ```
 
 En Windows PowerShell, la activación es `.venv\Scripts\Activate.ps1`.
@@ -56,6 +60,32 @@ print(observations.tail())
 El SDK recorre automáticamente todas las páginas. Si prefieres controlar cada
 página, usa `client.observations_page(...)` y conserva `next_cursor` exactamente
 como lo entrega la API.
+
+La comparación de modelos usa los últimos 7 días como validación temporal,
+rezagos de demanda, ventanas móviles, calendario y contexto. Consulta
+[docs/model-comparison.md](docs/model-comparison.md) para los resultados y la
+justificación del modelo seleccionado. El entrenamiento final del candidato
+ganador guarda `artifacts/extra_trees_demand.joblib`.
+El script `examples/05_submit_predictions.py` genera y envía las predicciones
+del ciclo abierto usando `PULSO_API_KEY` desde `.env`.
+
+El colector `python -m pulso_transmi.collector` descarga los datos del API y los
+actualiza en las tablas `pulso.stations`, `pulso.context` y
+`pulso.observations` de PostgreSQL. Requiere `PULSO_API_KEY` y
+`SUPABASE_DB_URL` en el entorno.
+
+El workflow [`pulso-transmi-pipeline.yml`](.github/workflows/pulso-transmi-pipeline.yml)
+despierta cada 10 minutos. El cron no decide si se envía una predicción: el
+workflow consulta `GET /v1/forecast-cycles/current`, termina en verde cuando la
+API responde `404 no_open_cycle` y solo cuando hay ciclo abierto sincroniza,
+entrena y envía exactamente los targets publicados. `PULSO_API_KEY` debe existir
+únicamente como GitHub Actions Secret.
+
+La operación automática está separada en tres workflows: el colector carga datos
+cada hora, `pulso-transmi-pipeline` ejecuta inferencia y submissions cada 10
+minutos cuando existe un ciclo abierto, y `pulso-transmi-drift` monitorea drift
+cada hora. Si el PSI de una variable supera 0,20, el workflow deja un reporte,
+reentrena `ExtraTreesRegressor` y guarda el artefacto como evidencia.
 
 ## Datos iniciales
 
